@@ -49,6 +49,8 @@ Run a tactic in a proof state.
 structure ProofStep where
   proofState : Nat
   tactic : String
+  -- in milliseconds
+  timeout : Option Nat := none
 deriving ToJson, FromJson
 
 /-- Line and column information for error messages and sorries. -/
