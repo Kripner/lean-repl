@@ -40,7 +40,7 @@ def stepGoalsAfter (step : ProofStepInfo) : List GoalInfo := step.goalsAfter ++ 
 
 def noInEdgeGoals (allGoals : Std.HashSet GoalInfo) (steps : List ProofStepInfo) : Std.HashSet GoalInfo :=
   -- Some of the orphaned goals might be matched by tactics in sibling subtrees, e.g. for tacticSeq.
-  (steps.bind stepGoalsAfter).foldl Std.HashSet.erase allGoals
+  (steps.flatMap stepGoalsAfter).foldl Std.HashSet.erase allGoals
 
 /-
   Instead of doing parsing of what user wrote (it wouldn't work for linarith etc),
@@ -121,7 +121,7 @@ open Parser.Tactic (optConfig rwRuleSeq location getConfigItems)
 def prettifySteps (stx : Syntax) (ctx : ContextInfo) (steps : List ProofStepInfo) : IO (List ProofStepInfo) := do
   let range := stx.toRange ctx
   let prettify (tStr : String) :=
-    let res := tStr.trim.dropRightWhile (· == ',')
+    let res := tStr.trimAscii.toString.dropEndWhile (· == ',') |>.toString
     -- rw puts final rfl on the "]" token
     if res == "]" then "rfl" else res
   -- Each part of rw is a separate step none of them include the initial 'rw [' and final ']'.
@@ -191,8 +191,8 @@ partial def postNode (ctx : ContextInfo) (i : Info) (_: PersistentArray InfoTree
     let res := res.filterMap id
     let some ctx := i.updateContext? ctx
       | panic! "unexpected context node"
-    let mut steps := res.map (fun r => r.steps) |>.join
-    let allSubGoals := Std.HashSet.empty.insertMany $ res.bind (·.allGoals.toList)
+    let mut steps := res.map (fun r => r.steps) |>.flatten
+    let allSubGoals := Std.HashSet.ofList $ res.flatMap (·.allGoals.toList)
     if let .ofTacticInfo tInfo := i then
       -- shortcut if it's not a tactic user wrote
       -- \n trim to avoid empty lines/comments until next tactic,
@@ -205,11 +205,11 @@ partial def postNode (ctx : ContextInfo) (i : Info) (_: PersistentArray InfoTree
       steps ← prettifySteps tInfo.stx ctx steps
 
       let proofTreeEdges ← getGoalsChange ctx tInfo
-      let currentGoals := proofTreeEdges.map (fun ⟨ _, g₁, gs ⟩ => g₁ :: gs)  |>.join
-      let allGoals := allSubGoals.insertMany $ currentGoals
+      let currentGoals := proofTreeEdges.map (fun ⟨ _, g₁, gs ⟩ => g₁ :: gs)  |>.flatten
+      let allGoals := allSubGoals.insertMany currentGoals
       -- It's like tacticDependsOn but unnamed mvars instead of hyps.
       -- Important to sort for have := calc for example, e.g. calc 3 < 4 ... 4 < 5 ...
-      let orphanedGoals := currentGoals.foldl Std.HashSet.erase (noInEdgeGoals allGoals steps)
+      let orphanedGoals := List.foldl Std.HashSet.erase (noInEdgeGoals allGoals steps) currentGoals
         |>.toArray.insertionSort (nameNumLt ·.id.name ·.id.name) |>.toList
 
       let mctxBeforeJson ← MetavarContext.toJson tInfo.mctxBefore ctx
