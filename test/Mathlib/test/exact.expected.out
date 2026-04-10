@@ -9,7 +9,7 @@
  [{"severity": "warning",
    "pos": {"line": 1, "column": 8},
    "endPos": {"line": 1, "column": 12},
-   "data": "declaration uses 'sorry'"}],
+   "data": "declaration uses `sorry`"}],
  "env": 1}
 
 {"proofStatus": "Completed",
@@ -18,7 +18,7 @@
  [{"severity": "info",
    "pos": {"line": 0, "column": 0},
    "endPos": {"line": 0, "column": 0},
-   "data": "Try this: exact Nat.one_pos"}],
+   "data": "Try this:\n  [apply] exact Nat.one_pos"}],
  "goals": []}
 
 {"sorries":
@@ -30,7 +30,7 @@
  [{"severity": "warning",
    "pos": {"line": 1, "column": 8},
    "endPos": {"line": 1, "column": 12},
-   "data": "declaration uses 'sorry'"}],
+   "data": "declaration uses `sorry`"}],
  "env": 2}
 
 {"message":

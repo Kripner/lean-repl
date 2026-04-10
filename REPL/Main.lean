@@ -143,7 +143,7 @@ def tactics (trees : List InfoTree) (env? : Option Environment) : M m (List Tact
   trees.flatMap InfoTree.tactics |>.mapM
     fun ⟨ctx, stx, rootGoals, goals, pos, endPos, ns⟩ => do
       let proofState := some (← ProofSnapshot.create ctx none env? goals rootGoals)
-      let goals := s!"{(← ctx.ppGoals goals)}".trim
+      let goals := s!"{(← ctx.ppGoals goals)}".trimAscii.toString
       let tactic := Format.pretty (← ppTactic ctx stx)
       let proofStateId ← proofState.mapM recordProofSnapshot
       return Tactic.of goals tactic pos endPos proofStateId ns
@@ -159,17 +159,17 @@ def collectRootGoalsAsSorries (trees : List InfoTree) (env? : Option Environment
   trees.flatMap InfoTree.rootGoals |>.mapM
     fun ⟨ctx, goals, pos⟩ => do
       let proofState := some (← ProofSnapshot.create ctx none env? goals goals)
-      let goals := s!"{(← ctx.ppGoals goals)}".trim
+      let goals := s!"{(← ctx.ppGoals goals)}".trimAscii.toString
       let proofStateId ← proofState.mapM recordProofSnapshot
       return Sorry.of goals none pos pos proofStateId
 
 
 private def collectFVarsAux : Expr → NameSet
   | .fvar fvarId => NameSet.empty.insert fvarId.name
-  | .app fm arg => (collectFVarsAux fm).union $ collectFVarsAux arg
-  | .lam _ binderType body _ => (collectFVarsAux binderType).union $ collectFVarsAux body
-  | .forallE _ binderType body _ => (collectFVarsAux binderType).union $ collectFVarsAux body
-  | .letE _ type value body _ => ((collectFVarsAux type).union $ collectFVarsAux value).union $ collectFVarsAux body
+  | .app fm arg => (collectFVarsAux fm).merge $ collectFVarsAux arg
+  | .lam _ binderType body _ => (collectFVarsAux binderType).merge $ collectFVarsAux body
+  | .forallE _ binderType body _ => (collectFVarsAux binderType).merge $ collectFVarsAux body
+  | .letE _ type value body _ => ((collectFVarsAux type).merge $ collectFVarsAux value).merge $ collectFVarsAux body
   | .mdata _ expr => collectFVarsAux expr
   | .proj _ _ struct => collectFVarsAux struct
   | _ => NameSet.empty
@@ -210,6 +210,7 @@ def getProofStatus (proofState : ProofSnapshot) : M m String := do
       let res := proofState.runMetaM do
         match proofState.rootGoals with
         | [goalId] =>
+          goalId.withContext do
           match proofState.metaState.mctx.getExprAssignmentCore? goalId with
           | none => return "Error: Goal not assigned"
           | some pf => do
@@ -221,7 +222,7 @@ def getProofStatus (proofState : ProofSnapshot) : M m String := do
             unless (← Meta.isDefEq pft expectedType) do
               return s!"Error: proof has type {pft} but root goal has type {expectedType}"
 
-            let pf ← goalId.withContext $ abstractAllLambdaFVars pf
+            let pf ← abstractAllLambdaFVars pf
             let pft ← Meta.inferType pf >>= instantiateMVars
 
             if pf.hasExprMVar then
@@ -700,7 +701,7 @@ def runCommand (s : Command) : M IO (CommandResponse ⊕ Error) := do
 def processFile (s : File) : M IO (CommandResponse ⊕ Error) := do
   try
     let cmd ← IO.FS.readFile s.path
-    runCommand { s with env := none, cmd }
+    runCommand { s with env := s.env, cmd }
   catch e =>
     pure <| .inr ⟨e.toString⟩
 
@@ -747,10 +748,10 @@ open REPL
 /-- Get lines from stdin until a blank line is entered. -/
 partial def getLines : IO String := do
   let line ← (← IO.getStdin).getLine
-  if line.trim.isEmpty then
+  if line.trimAscii.isEmpty then
     return line
   else
-    return line ++ (← getLines)
+    return line.trimAsciiEnd.toString ++ (← getLines)
 
 instance [ToJson α] [ToJson β] : ToJson (α ⊕ β) where
   toJson x := match x with

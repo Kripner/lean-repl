@@ -7,7 +7,7 @@
  [{"severity": "warning",
    "pos": {"line": 1, "column": 8},
    "endPos": {"line": 1, "column": 18},
-   "data": "declaration uses 'sorry'"}],
+   "data": "declaration uses `sorry`"}],
  "env": 0}
 
 {"proofStatus": "Incomplete: contains sorry",
@@ -16,6 +16,6 @@
  [{"severity": "error",
    "pos": {"line": 0, "column": 0},
    "endPos": {"line": 0, "column": 0},
-   "data": "unknown identifier 'my_fake_premise'"}],
+   "data": "Unknown identifier `my_fake_premise`"}],
  "goals": []}
 

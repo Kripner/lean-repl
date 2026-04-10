@@ -33,10 +33,11 @@ structure Command extends CommandOptions where
   cmd : String
 deriving ToJson, FromJson
 
-/-- Process a Lean file in a fresh environment. -/
+/-- Process a Lean file in a fresh environment if `env` is not provided. -/
 structure File extends CommandOptions where
+  env : Option Nat
   path : System.FilePath
-deriving FromJson
+deriving ToJson, FromJson
 
 structure PruneSnapshots where
   cmdFromId : Option Nat
@@ -80,7 +81,7 @@ def Message.of (m : Lean.Message) : IO Message := do pure <|
     | .information => .info
     | .warning => .warning
     | .error => .error,
-    data := (← m.data.toString).trim }
+    data := (← m.data.toString).trimAscii.toString }
 
 structure HypothesisInfo where
   username : String
