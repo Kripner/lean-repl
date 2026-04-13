@@ -160,6 +160,8 @@ def prettifySteps (stx : Syntax) (ctx : ContextInfo) (steps : List ProofStepInfo
     extractRwStep steps "rw" at_clause
   | `(tactic| rewrite [$_,*] $(at_clause)?) =>
     extractRwStep steps "rewrite" at_clause
+  | `(tactic| erw [$_,*] $(at_clause)?) =>
+    extractRwStep steps "erw" at_clause
   | `(tactic| rwa [$_,*] $(at_clause)?) =>
     let rwSteps ← extractRwStep steps "rw" at_clause
     let assumptionSteps := (if rwSteps.isEmpty then [] else rwSteps.getLast!.goalsAfter).map fun g =>
