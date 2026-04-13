@@ -178,6 +178,9 @@ def prettifySteps (stx : Syntax) (ctx : ContextInfo) (steps : List ProofStepInfo
         finish := none
       }
     return rwSteps ++ assumptionSteps
+  | `(tactic| intro $_*) =>
+    -- Keep `intro` as a single step instead of decomposing into one step per variable.
+    return []
   | _ => return steps
 
 -- Comparator for names, e.g. so that _uniq.34 and _uniq.102 go in the right order.
