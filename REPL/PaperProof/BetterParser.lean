@@ -198,6 +198,12 @@ partial def postNode (ctx : ContextInfo) (i : Info) (_: PersistentArray InfoTree
       | panic! "unexpected context node"
     let mut steps := res.map (fun r => r.steps) |>.flatten
     let allSubGoals := Std.HashSet.ofList $ res.flatMap (·.allGoals.toList)
+    -- Skip non-substantive TacticInfo nodes (e.g. synthetic `null` syntax produced
+    -- by elaboration of tactics like `simpa using X`, where the inner node has a
+    -- narrower range than the actual tactic).
+    if let .ofTacticInfo tInfo := i then
+      unless tInfo.isSubstantive do
+        return { steps, allGoals := allSubGoals }
     if let .ofTacticInfo tInfo := i then
       -- shortcut if it's not a tactic user wrote
       -- \n trim to avoid empty lines/comments until next tactic,
