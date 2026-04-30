@@ -761,11 +761,18 @@ def runWithTimeout (timeout? : Option Nat) (task : IO.CancelToken → M IO α) :
       -- Both cancels are cooperative: tactics with raw CPU-bound loops in
       -- `IO`/`BaseIO` that never check either won't notice and would leak
       -- as runaway threads consuming a core indefinitely past our return
-      -- (observed in production, hours of zombie CPU). Wait briefly for
-      -- the worker to honor the cancel. If it doesn't, exit the process
-      -- so the harness can recycle this entry.
-      let GRACE_MS : Nat := 200
-      let POLL_MS : UInt32 := 20
+      -- (observed in production, hours of zombie CPU). Wait for the
+      -- worker to honor the cancel. If it doesn't, exit the process so
+      -- the harness can recycle this entry.
+      --
+      -- Grace is generous (5 s) because heavy real-world tactics (notably
+      -- `grind`) only call `Core.checkInterrupted` between major
+      -- iterations of their search loops, and a single iteration on a
+      -- hard problem can take seconds. A 200 ms grace was killing those
+      -- mid-iteration even though they would have honored the cancel
+      -- shortly after, costing a Mathlib re-import per false positive.
+      let GRACE_MS : Nat := 5000
+      let POLL_MS : UInt32 := 50
       let mut elapsed : Nat := 0
       while elapsed < GRACE_MS && !(← IO.hasFinished jobTask) do
         IO.sleep POLL_MS
