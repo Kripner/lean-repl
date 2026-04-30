@@ -176,8 +176,18 @@ def runSyntax (p : ProofSnapshot) (t : Syntax) : IO ProofSnapshot :=
 /--
 Parse a string into a `Syntax`, evaluate it as a `TacticM` tactic,
 and run it in the current `ProofSnapshot`.
+
+When `cancelTk?` is provided, the tactic runs with that token installed
+in its `Core.Context`. Tactics that call `Lean.Core.checkInterrupted`
+(directly or via heartbeats) will throw on `tk.set` so the caller can
+abort cooperative tactics cleanly.
 -/
-def runString (p : ProofSnapshot) (t : String) : IO ProofSnapshot :=
+def runString (p : ProofSnapshot) (t : String)
+    (cancelTk? : Option IO.CancelToken := none) : IO ProofSnapshot :=
+  let p := match cancelTk? with
+    | none => p
+    | some _ =>
+      { p with coreContext := { p.coreContext with cancelTk? } }
   match Parser.runParserCategory p.coreState.env `tactic t with
   | .error e => throw (IO.userError e)
   | .ok stx => p.runSyntax stx

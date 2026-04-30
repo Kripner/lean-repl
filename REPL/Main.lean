@@ -707,27 +707,45 @@ def processFile (s : File) : M IO (CommandResponse ⊕ Error) := do
 
 /--
 Run a single tactic, returning the id of the new proof statement, and the new goals.
+
+`cancelTk?` is installed into the proof state's `Core.Context` for the
+duration of the tactic so that `Lean.Core.checkInterrupted` (and the
+heartbeat infrastructure built on it) can interrupt the tactic when the
+token is set.
 -/
 -- TODO detect sorries?
-def runProofStep (s : ProofStep) : M IO (ProofStepResponse ⊕ Error) := do
+def runProofStep (s : ProofStep) (cancelTk? : Option IO.CancelToken := none) :
+    M IO (ProofStepResponse ⊕ Error) := do
   match (← get).proofStates[s.proofState]? with
   | none => return .inr ⟨"Unknown proof state."⟩
   | some proofState =>
     try
-      let proofState' ← proofState.runString s.tactic
+      let proofState' ← proofState.runString s.tactic cancelTk?
       return .inl (← createProofStepReponse proofState' proofState)
     catch ex =>
       return .inr ⟨"Lean error:\n" ++ ex.toString⟩
 
 /--
 Run a task with an optional timeout in milliseconds.
-Implemented by Auguste Poiroux.
+
+The task receives an `IO.CancelToken` it should plumb into the elaborator
+context (see `runProofStep`). On timeout we both `tk.set` (so cooperative
+tactics calling `Lean.Core.checkInterrupted` throw) and `IO.cancel jobTask`
+(belt-and-braces for callers checking `IO.checkCanceled`). If the worker
+still hasn't exited after a short grace window, we exit the process so
+the harness can recycle - without preemptive thread cancellation in Lean,
+that's the only way to stop a runaway CPU-bound tactic body.
+
+Originally implemented by Auguste Poiroux; cooperative-cancel + grace-exit
+added later to plug a worker leak observed in production.
 -/
-def runWithTimeout (timeout? : Option Nat) (task : M IO α) : M IO α :=
+def runWithTimeout (timeout? : Option Nat) (task : IO.CancelToken → M IO α) :
+    M IO α := do
+  let cancelTk ← IO.CancelToken.new
   match timeout? with
-  | none => task
+  | none => task cancelTk
   | some timeout => do
-    let jobTask ← IO.asTask (prio := .dedicated) (StateT.run task (← get))
+    let jobTask ← IO.asTask (prio := .dedicated) (StateT.run (task cancelTk) (← get))
     let timeoutTask : IO (α × State) := do
       IO.sleep timeout.toUInt32
       throw <| IO.userError s!"Operation timed out"
@@ -738,7 +756,25 @@ def runWithTimeout (timeout? : Option Nat) (task : M IO α) : M IO α :=
       modify fun _ => state
       return a
     | .error e =>
-      IO.cancel jobTask
+      cancelTk.set        -- wake up `Lean.Core.checkInterrupted` callers
+      IO.cancel jobTask   -- and `IO.checkCanceled` callers, for good measure
+      -- Both cancels are cooperative: tactics with raw CPU-bound loops in
+      -- `IO`/`BaseIO` that never check either won't notice and would leak
+      -- as runaway threads consuming a core indefinitely past our return
+      -- (observed in production, hours of zombie CPU). Wait briefly for
+      -- the worker to honor the cancel. If it doesn't, exit the process
+      -- so the harness can recycle this entry.
+      let GRACE_MS : Nat := 200
+      let POLL_MS : UInt32 := 20
+      let mut elapsed : Nat := 0
+      while elapsed < GRACE_MS && !(← IO.hasFinished jobTask) do
+        IO.sleep POLL_MS
+        elapsed := elapsed + POLL_MS.toNat
+      if !(← IO.hasFinished jobTask) then
+        let stderr ← IO.getStderr
+        stderr.putStr s!"runWithTimeout: cancelled task did not honor cancellation within {GRACE_MS}ms; exiting to prevent runaway thread leak\n"
+        stderr.flush
+        IO.Process.exit 137
       throw e
 
 end REPL
@@ -812,7 +848,7 @@ where loop : M IO Unit := do
       match ← parse query with
       | .command r => return toJson (← runCommand r)
       | .file r => return toJson (← processFile r)
-      | .proofStep r => return toJson (← runWithTimeout r.timeout (runProofStep r))
+      | .proofStep r => return toJson (← runWithTimeout r.timeout (runProofStep r ·))
       | .pickleEnvironment r => return toJson (← pickleCommandSnapshot r)
       | .unpickleEnvironment r => return toJson (← unpickleCommandSnapshot r)
       | .pickleProofSnapshot r => return toJson (← pickleProofSnapshot r)
